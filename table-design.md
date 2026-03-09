@@ -237,3 +237,96 @@
 - Query PK='WFHPERIOD' returns all periods for date range filtering
 
 ---
+
+### 7. Audit Log
+
+#### Access Patterns
+
+1. **Write audit entry on every mutation**  
+   `PK: AUDIT#{entityType}#{entityId}` `SK: {timestamp}#{uuid}`
+
+2. **Get all changes made by a specific user (actor)**  
+   Query GSI1 `gsi1pk: AUDIT_BY_ACTOR#{actorDiscordId}`
+
+3. **Get all changes made to a specific entity**  
+   Query `PK: AUDIT#{entityType}#{entityId}`
+
+4. **Get changes of a specific entity type by a user**  
+   Query GSI2 `gsi2pk: AUDIT_BY_ACTOR_ENTITY#{actorDiscordId}#{entityType}`
+
+#### DB Schema
+
+**PK:** `AUDIT#{entityType}#{entityId}`  
+**SK:** `{timestamp}#{uuid}`  
+**gsi1pk:** `AUDIT_BY_ACTOR#{actorDiscordId}`  
+**gsi1sk:** `{timestamp}#{uuid}`  
+**gsi2pk:** `AUDIT_BY_ACTOR_ENTITY#{actorDiscordId}#{entityType}`  
+**gsi2sk:** `{timestamp}#{uuid}`
+
+**Attributes:**
+- `id` (String) — UUID
+- `timestamp` (String) — ISO 8601 timestamp
+- `actorDiscordId` (String) — Who made the change
+- `actorName` (String) — Denormalized actor name
+- `action` (String) — CREATE | UPDATE | DELETE
+- `entityType` (String) — USER | MEAL_RECORD | SCHEDULE | TEAM | WFH_PERIOD
+- `entityId` (String) — Identifier of the changed entity
+- `targetDiscordId` (String | null) — For USER or MEAL_RECORD changes
+- `changes` (Object) — `{ field: { old: value, new: value } }`
+- `metadata` (Object) — Optional context (IP, command name, etc.)
+
+**Schema Conventions:**
+- `AUDIT#` prefix + entity type + entity ID groups all changes to an entity
+- Timestamp + UUID in SK provides chronological ordering and uniqueness
+- `AUDIT_BY_ACTOR#` in GSI1 enables querying all actions by a user
+- `AUDIT_BY_ACTOR_ENTITY#` in GSI2 enables filtering by actor + entity type
+- Composite SK ensures sort order is always chronological (newest first when queried descending)
+
+---
+
+## Key Design Principles
+
+### Global Secondary Indexes
+
+**GSI1 (gsi1-index):** `gsi1pk` (HASH) + `gsi1sk` (RANGE)
+
+**Usage:**
+- `gsi1pk: DATE#{YYYY-MM-DD}` — Query all meal records for a specific date
+- `gsi1pk: WFHPERIOD` — Query all WFH periods sorted by start date
+- `gsi1pk: AUDIT_BY_ACTOR#{actorDiscordId}` — Query all changes made by a user
+
+**GSI2 (gsi2-index):** `gsi2pk` (HASH) + `gsi2sk` (RANGE)
+
+**Usage:**
+- `gsi2pk: AUDIT_BY_ACTOR_ENTITY#{actorDiscordId}#{entityType}` — Query changes of specific entity type by a user
+
+### Prefix Conventions
+
+- `USER#` — User partition
+- `RECORD#` — Meal record sort key
+- `DATE#` — Date-based GSI partition
+- `SCHEDULE#` — Schedule partition
+- `TEAM#` — Team partition
+- `WFHPERIOD` — WFH period constant partition
+- `AUDIT#` — Audit log partition
+- `AUDIT_BY_ACTOR#` — Audit GSI by actor
+- `AUDIT_BY_ACTOR_ENTITY#` — Audit GSI by actor + entity type
+- `SYSTEM` — System metadata partition
+
+### GSI Overloading
+
+Both GSI1 and GSI2 serve multiple access patterns by using different prefix patterns in the same index attributes. This reduces the total number of GSIs needed while maintaining query efficiency.
+
+### Denormalization Strategy
+
+- Team name stored on user profiles and meal records (avoids joins for common queries)
+- Actor name stored on audit logs (historical record, doesn't change if user renamed)
+- Team ID stored on meal records (enables headcount grouping without team lookup)
+
+### Sort Key Design
+
+- Timestamps in SK enable chronological ordering
+- Date ranges in SK enable 7-day queries with BETWEEN operator
+- UUID suffix ensures uniqueness when timestamp alone isn't sufficient
+
+---
