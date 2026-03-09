@@ -158,3 +158,82 @@
 
 
 ---
+
+### 5. Team
+
+#### Access Patterns
+
+1. **Get team details and member list**  
+   `PK: TEAM#{teamId}` `SK: METADATA`
+
+2. **Get all team member profiles**  
+   GetItem `PK: TEAM#{teamId}` `SK: METADATA` → BatchGetItem profiles
+
+3. **Update team membership (add/remove members)**  
+   UpdateItem `PK: TEAM#{teamId}` `SK: METADATA` (ADD/DELETE from memberIds StringSet)
+
+#### DB Schema
+
+**PK:** `TEAM#{teamId}`  
+**SK:** `METADATA`
+
+**Attributes:**
+- `teamId` (String) — Unique team identifier
+- `name` (String) — Team name
+- `leadId` (String) — Discord ID of team lead
+- `memberIds` (StringSet) — Set of active member Discord IDs
+- `createdAt` (String) — ISO 8601 timestamp
+- `updatedAt` (String) — ISO 8601 timestamp
+
+**Schema Conventions:**
+- `TEAM#` prefix identifies team partition
+- `METADATA` is a constant SK for team configuration
+- `memberIds` StringSet works for teams <100 members (400KB limit)
+- Team lead's discordId stored for authorization checks
+
+---
+
+### 6. WFH Period
+
+#### Access Patterns
+
+1. **List all WFH periods**  
+   Query `PK: WFHPERIOD`
+
+2. **List all WFH periods sorted by start date (via GSI1)**  
+   Query GSI1 `gsi1pk: WFHPERIOD` (sorted by gsi1sk)
+
+3. **Create WFH period**  
+   `PK: WFHPERIOD` `SK: {uuid}`
+
+4. **Update WFH period**  
+   UpdateItem `PK: WFHPERIOD` `SK: {uuid}`
+
+5. **Delete WFH period**  
+   DeleteItem `PK: WFHPERIOD` `SK: {uuid}`
+
+6. **Check if a date falls within any WFH period**  
+   Query `PK: WFHPERIOD` → filter in application (dateFrom <= date <= dateTo)
+
+#### DB Schema
+
+**PK:** `WFHPERIOD`  
+**SK:** `{uuid}`  
+**gsi1pk:** `WFHPERIOD`  
+**gsi1sk:** `{dateFrom}#{uuid}`
+
+**Attributes:**
+- `id` (String) — UUID
+- `dateFrom` (String) — YYYY-MM-DD start date
+- `dateTo` (String) — YYYY-MM-DD end date
+- `note` (String | null) — Optional description
+- `createdAt` (String) — ISO 8601 timestamp
+- `updatedAt` (String) — ISO 8601 timestamp
+
+**Schema Conventions:**
+- `WFHPERIOD` constant PK groups all periods together
+- UUID as SK ensures uniqueness
+- GSI1 with `dateFrom` in SK enables date-sorted queries
+- Query PK='WFHPERIOD' returns all periods for date range filtering
+
+---
