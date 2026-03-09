@@ -87,3 +87,74 @@
 - `workFromHome` is always boolean (never null)
 
 ---
+
+### 3. Active Users List
+
+#### Access Patterns
+
+1. **Get all active user Discord IDs (used by nightly cron)**  
+   `PK: SYSTEM` `SK: ACTIVE_USERS`
+
+2. **Update active users list when users are added/removed**  
+   UpdateItem `PK: SYSTEM` `SK: ACTIVE_USERS` (ADD/DELETE from StringSet)
+
+#### DB Schema
+
+**PK:** `SYSTEM`  
+**SK:** `ACTIVE_USERS`
+
+**Attributes:**
+- `memberIds` (StringSet) — Set of all active Discord IDs
+- `updatedAt` (String) — ISO 8601 timestamp
+
+**Schema Conventions:**
+- `SYSTEM` partition holds system-wide metadata
+- `ACTIVE_USERS` is a sentinel item to avoid full table scans
+- StringSet enables efficient ADD/DELETE operations
+- Cron job reads this once to get all active users
+
+---
+
+### 4. Meal Schedule
+
+#### Access Patterns
+
+1. **Get schedule for a specific date**  
+   `PK: SCHEDULE#{YYYY-MM-DD}` `SK: METADATA`
+
+2. **Create schedule for a date**  
+   `PK: SCHEDULE#{YYYY-MM-DD}` `SK: METADATA`
+
+3. **Update schedule for a date**  
+   UpdateItem `PK: SCHEDULE#{YYYY-MM-DD}` `SK: METADATA`
+
+4. **Delete schedule for a date**  
+   DeleteItem `PK: SCHEDULE#{YYYY-MM-DD}` `SK: METADATA`
+
+5. **List all upcoming schedules (scan with filter)**  
+   Scan with filter `PK begins_with SCHEDULE# AND date >= today`
+
+#### DB Schema
+
+**PK:** `SCHEDULE#{YYYY-MM-DD}`  
+**SK:** `METADATA`
+
+**Attributes:**
+- `date` (String) — YYYY-MM-DD
+- `lunchEnabled` (Boolean) — Lunch available
+- `snacksEnabled` (Boolean) — Snacks available
+- `iftarEnabled` (Boolean) — Iftar available
+- `eventDinnerEnabled` (Boolean) — Event dinner available
+- `optionalDinnerEnabled` (Boolean) — Optional dinner available
+- `occasionName` (String | null) — Optional occasion label
+- `createdAt` (String) — ISO 8601 timestamp
+- `updatedAt` (String) — ISO 8601 timestamp
+
+**Schema Conventions:**
+- `SCHEDULE#` prefix + date as PK enables direct GetItem by date
+- `METADATA` is a constant SK for schedule configuration
+- Date in PK allows scan filtering for upcoming schedules
+- Low volume (~30 items max) makes scan acceptable
+
+
+---
